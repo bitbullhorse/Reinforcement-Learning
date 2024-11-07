@@ -1,10 +1,11 @@
 from ding.torch_utils.network import GTrXL
 import torch
 
-gtrxl = GTrXL(20)
+# from StockEnv import StockEnv
 
-input1= torch.randn(12, 10, 20)
+gtrxl = GTrXL(20, gru_gating=False)
 
-print(gtrxl(input1)['logit'][-1,:].shape)
+input1= torch.randn(1, 10, 20)
 
-
+print(gtrxl(input1)['logit'].shape)
+print(gtrxl.memory.memory[0][-2])
