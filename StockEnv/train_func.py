@@ -11,7 +11,6 @@ import time  # 添加导入
 from tqdm import tqdm  # 添加导入
 
 device = 'cuda'
-cwd = '/home/czj/pycharm_project_tmp_pytorch/VaR/'
 torch.autograd.set_detect_anomaly(True)
 
 criterion_CrossEntropy = nn.CrossEntropyLoss()
@@ -30,7 +29,7 @@ def log_training_info(path, model_name, end_time, loss_sum, loss_func, predlen=N
     end_time_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(end_time))  # 转换时间格式
     with open(log_path, 'a') as log_file:
         if predlen is None:
-            log_file.write(f'Model: {model_name}, settings:dmodel:{model.d_model}, nhead:{model.n_head} nlayers:{model.nlayers} seqlen:{model.seq_len} d_ff:{model.d_ff}\
+            log_file.write(f'Model: {model_name}, settings:dmodel:{model.d_model}, nhead:{model.n_head} nlayers:{model.nlayers} seqlen:{model.seq_len} d_ff:{model.d_ff} pred_len:{model.pred_len}\
                            \n        End Time: {end_time_str}, Loss: {loss_sum}, Loss_func: {(str(type(loss_func))[8:-2]).split(".")[-1]}\n')
         else:
             model_setting = model.__dict__
@@ -196,4 +195,6 @@ def train_iTranformer(model, epochs, train_loader:Dataloader, test_Loss, optimiz
     
     end_time = time.time()  # 记录结束时间
     print(f'Training time: {end_time - start_time} seconds')  # 打印训练时间
-    log_training_info(path, f'iTransformer_{model.pred_len}', end_time, loss_sum, test_Loss)  # 调整参数顺序
+    log_training_info(path, f'iTransformer', end_time, loss_sum, test_Loss, model=model)  # 调整参数顺序
+
+

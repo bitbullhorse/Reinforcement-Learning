@@ -10,7 +10,12 @@ import torch.optim as optim
 
 import math
 import torch.nn.functional as F
-from layers.Embed import DataEmbedding
+try:
+    from layers.Embed import DataEmbedding
+except:
+    from .layers.Embed import DataEmbedding
+
+from ding.torch_utils.network import GTrXL
 
 
 torch.autograd.set_detect_anomaly(True)
@@ -170,8 +175,27 @@ class EncoderOnlyTransformer(nn.Module):
     
     def forward(self, src, tgt, has_mask=False):
         enc_out = self.encoder(src)
-        enc_out = self.projector(enc_out)
+        enc_out = self.projector(enc_out)[:,-1,:]
         return enc_out
+
+class TrXL(nn.Module):
+    def __init__(self, d_model, nhead, batch_first=False, nlayers=6, d_ff=2048, dropout=0.1, d_out=1):
+        super(TrXL, self).__init__()
+        self.d_model = d_model
+        self.n_head = nhead
+        self.head_dim = d_model // nhead
+        self.nlayers = nlayers
+        self.d_ff = d_ff
+        self.embedding_dim = 512
+
+        self.transformer = GTrXL(d_model, embedding_dim=self.embedding_dim,head_dim=self.head_dim, layer_num=nlayers, head_num=nhead, dropout_ratio=dropout, gru_gating=False).double()
+        self.projector = nn.Linear(self.embedding_dim, d_out, dtype=torch.float64)
+    
+    def forward(self, src, tgt, has_mask=False):
+        output = self.transformer(src, batch_first=True, return_mem=False)['logit'][:,-1,:]
+        output = self.projector(output)
+        return output
+
 
 class PureLSTMRegression(nn.Module):
     def __init__(self, input_size, hidden_size, batch_first=True, dtype=torch.float64, num_layers=8, dropout=0):
@@ -179,7 +203,7 @@ class PureLSTMRegression(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.input_size = input_size
-        
+
         self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size, batch_first=batch_first, num_layers=num_layers,dtype=dtype, dropout=dropout)
         self.Linear = nn.Linear(input_size, input_size, bias=False, dtype=dtype)
 

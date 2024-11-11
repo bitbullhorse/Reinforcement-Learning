@@ -2,11 +2,12 @@ import os
 import pandas as pd
 
 import config
-from preprocessors import FeatureEngineer
+from preprocessors import FeatureEngineer, data_split
 
-# from .StockEnv.StockEnv import StockTradingEnv
+from StockEnv.StockEnv import StockTradingEnv
+from StockEnv.config import INDICATORS as INDICATORS
 
-stock_nums = ['000001/', '600031']
+stock_nums = ['000001', '600031',]
 index = ['日期_Date', '股票代码_Stkcd', '收盘价_Clpr', '开盘价_Oppr', '最高价_Hipr', '最低价_Lopr', '复权价1(元)_AdjClpr1',
          '复权价2(元)_AdjClpr2', '成交量_Trdvol',
          '成交金额_Trdsum', '日振幅(%)_Dampltd', '总股数日换手率(%)_DFulTurnR', '流通股日换手率(%)_DTrdTurnR',
@@ -16,6 +17,7 @@ index = ['日期_Date', '股票代码_Stkcd', '收盘价_Clpr', '开盘价_Oppr'
          '总市值加权平均日资本收益_Daretmc', '日无风险收益率_DRfRet', '市盈率_PE']
 
 df = pd.DataFrame()
+type_dict = {'股票代码_Stkcd': 'str'}
 
 for stock_num in stock_nums:
     file_path = '/home/czj/pycharm_project_tmp_pytorch/强化学习/StockEnv/股票数据/' + stock_num + '/'
@@ -25,7 +27,7 @@ for stock_num in stock_nums:
         xls_path = file_path + file_name
         sheet_name = pd.ExcelFile(xls_path).sheet_names[0]
         # 确认列索引是否在范围内
-        new_df = pd.read_excel(xls_path, sheet_name=sheet_name, header=0)
+        new_df = pd.read_excel(xls_path, sheet_name=sheet_name, header=0, dtype=type_dict)
         df = pd.concat([df, new_df])
 
 df = df[index]
@@ -58,15 +60,42 @@ df = df.stack(level='tic').reset_index()
 # 重命名列名
 df.rename(columns={'level_0': 'date'}, inplace=True)
 # 打印重命名后的数据框
-print(len(df))
 
 fe = FeatureEngineer(
                     use_technical_indicator=True,
                     tech_indicator_list=config.TECHNICAL_INDICATORS_LIST,
-                    use_turbulence=False,
+                    use_turbulence=True,
                     user_defined_feature = False)
 
 df = fe.preprocess_data(df)
+df = data_split(df, '2016-01-04', '2024-06-28')
 
-print(df.columns)
-print(df.close_60_sma.head(10))
+stock_dimension = len(stock_nums)
+
+buy_cost_list = sell_cost_list = [0.001] * stock_dimension
+num_stock_shares = [0] * stock_dimension
+state_space = 1 + 3 * stock_dimension + len(INDICATORS) * stock_dimension
+
+env_kwargs = {
+    "hmax": 100,
+    "initial_amount": 1000000,
+    "num_stock_shares": num_stock_shares,
+    "buy_cost_pct": buy_cost_list,
+    "sell_cost_pct": sell_cost_list,
+    "state_space": state_space,
+    "stock_dim": stock_dimension,
+    "tech_indicator_list": INDICATORS,
+    "action_space": stock_dimension,
+    "reward_scaling": 1e-4,
+
+    'seq_len':12,
+    'pred_len':1,
+    'nhead':8,
+    'nlayers':6,
+    'd_ff':2048,
+    'keys': stock_nums,
+    'dmodel':256
+}
+
+env = StockTradingEnv(df, **env_kwargs)
+
