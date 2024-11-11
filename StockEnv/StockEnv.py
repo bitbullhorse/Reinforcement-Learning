@@ -103,9 +103,7 @@ class StockTradingEnv(gym.Env):
         self.action_space = action_space
         self.tech_indicator_list = tech_indicator_list
         self.action_space = spaces.Box(low=-1, high=1, shape=(self.action_space,))
-        self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(self.state_space,)
-        )
+
         self.data = self.df.loc[self.day, :]
         self.terminal = False
         self.make_plots = make_plots
@@ -117,9 +115,12 @@ class StockTradingEnv(gym.Env):
         self.model_name = model_name
         self.mode = mode
         self.iteration = iteration
+
         # initalize state
         self.state = self._initiate_state()
-
+        self.observation_space = spaces.Box(
+            low=-np.inf, high=np.inf, shape=(len(self.state),)
+        )
         # initialize reward
         self.reward = 0
         self.turbulence = 0
@@ -148,7 +149,7 @@ class StockTradingEnv(gym.Env):
     def _sell_stock(self, index, action):
         def _do_sell_normal():
             if (
-                self.state[index + 2 * self.stock_dim + 1] != True
+                self.state[index + 1] > 0
             ):  # check if the stock is able to sell, for simlicity we just add it in techical index
                 # if self.state[index + 1] > 0: # if we use price<0 to denote a stock is unable to trade in that day, the total asset calculation may be wrong for the price is unreasonable
                 # Sell only if the price is > 0 (no missing data in this particular date)
@@ -217,7 +218,7 @@ class StockTradingEnv(gym.Env):
     def _buy_stock(self, index, action):
         def _do_buy():
             if (
-                self.state[index + 2 * self.stock_dim + 1] != True
+                self.state[index + 1] > 0
             ):  # check if the stock is able to buy
                 # if self.state[index + 1] >0:
                 # Buy only if the price is > 0 (no missing data in this particular date)
@@ -432,6 +433,8 @@ class StockTradingEnv(gym.Env):
 
         return self.state
 
+    def to_tensor(self, key):
+        return torch.tensor(self.stock_dict[key][ENV_INDEX].loc[self.day - self.seq_len + 1:self.day].values, dtype=torch.float64, device=device)
 
     def _initiate_state(self):
         if self.initial:
@@ -446,6 +449,13 @@ class StockTradingEnv(gym.Env):
                         (
                             self.data[tech].values.tolist()
                             for tech in self.tech_indicator_list
+                        ),
+                        [],
+                    )
+                    + sum(
+                        (
+                            self.predictors[key](self.to_tensor(key).unsqueeze(0))[:,-1,0].tolist()
+                            for key in self.keys
                         ),
                         [],
                     )
@@ -475,6 +485,13 @@ class StockTradingEnv(gym.Env):
                         ),
                         [],
                     )
+                    + sum(
+                        (
+                            self.predictors[key](self.to_tensor(key).unsqueeze(0))[:, -1, 0].tolist()
+                            for key in self.keys
+                        ),
+                        [],
+                    )
                 )
             else:
                 # for single stock
@@ -500,6 +517,13 @@ class StockTradingEnv(gym.Env):
                     (
                         self.data[tech].values.tolist()
                         for tech in self.tech_indicator_list
+                    ),
+                    [],
+                )
+                + sum(
+                    (
+                        self.predictors[key](self.to_tensor(key).unsqueeze(0))[:, -1, 0].tolist()
+                        for key in self.keys
                     ),
                     [],
                 )

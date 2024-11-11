@@ -99,3 +99,5 @@ env_kwargs = {
 
 env = StockTradingEnv(df, **env_kwargs)
 
+print(env.state[49:51])
+print(env.data['等权平均市场日资本收益率_Dareteq'])
