@@ -9,6 +9,8 @@ from typing import List
 from StockEnv.iTransformer_model import *
 import torch
 
+from StockEnv.iTransformer_model import iTransformer
+
 ENV_INDEX = [
          'close',
          'open',
