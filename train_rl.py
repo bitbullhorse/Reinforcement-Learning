@@ -1,5 +1,12 @@
 import os
 import pandas as pd
+import torch.nn as nn
+import torch
+from ding.torch_utils.network import GTrXL
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+import gym
+from stable_baselines3 import PPO
+
 
 import config
 from preprocessors import FeatureEngineer, data_split
@@ -99,5 +106,37 @@ env_kwargs = {
 
 env = StockTradingEnv(df, **env_kwargs)
 
-print(env.state[49:51])
-print(env.data['等权平均市场日资本收益率_Dareteq'])
+class CustomFeatureExtractor(BaseFeaturesExtractor):
+    def __init__(self, observation_space: gym.Space, features_dim: int = 64):
+        super(CustomFeatureExtractor, self).__init__(observation_space, features_dim)
+        # 将输入维度映射到GTrXL的输入维度
+        self.initial_fc = nn.Linear(observation_space.shape[0], 20)
+        # 使用GTrXL作为特征提取的一部分
+        self.gtrxl = GTrXL(input_dim=20, gru_gating=False)
+        # 额外的全连接层
+        # self.final_fc = nn.Linear(observation_space.shape[0], features_dim)
+        self.final_fc = nn.Linear(256, features_dim)
+
+    
+    def forward(self, observations: torch.Tensor) -> torch.Tensor:
+        x = self.initial_fc(observations)
+        x = self.gtrxl(x.unsqueeze(0), batch_first=True)
+        x = self.final_fc(x['logit'].squeeze(0))  # 去除第一个维度
+        # x = self.final_fc(observations)
+
+        return x
+
+
+policy_kwargs = dict(
+    features_extractor_class=CustomFeatureExtractor,
+    features_extractor_kwargs=dict(features_dim=64),  # 根据需要调整
+)
+GTrXL_PPO = PPO(
+    "MlpPolicy",
+    env,
+    policy_kwargs=policy_kwargs,  # 将 features_extractor_class 放在 policy_kwargs 中
+    verbose=1,
+    tensorboard_log="/home/czj/pycharm_project_tmp_pytorch/强化学习/StockEnv/tensorboard/",
+)
+
+GTrXL_PPO.learn(total_timesteps=100000)

@@ -77,7 +77,6 @@ class StockTradingEnv(gym.Env):
 
         self.day = self.seq_len - 1
 
-
         self.stock_dict = {}
         self.predictor = multi_iTransformer(self.seq_len, self.pred_len, self.dmodel, self.nhead, self.nlayers,
                                             self.d_ff, self.keys)
@@ -260,8 +259,9 @@ class StockTradingEnv(gym.Env):
         return buy_num_shares
 
     def step(self, actions):
-        self.terminal = self.day >= len(self.df.index.unique()) - 1
-        if self.terminal:
+        terminated = self.day >= len(self.df.index.unique()) - 1
+        truncated = False
+        if terminated:
             # print(f"Episode: {self.episode}")
             end_total_asset = self.state[0] + sum(
                 np.array(self.state[1 : (self.stock_dim + 1)])
@@ -339,7 +339,7 @@ class StockTradingEnv(gym.Env):
             # logger.record("environment/total_cost", self.cost)
             # logger.record("environment/total_trades", self.trades)
 
-            return self.state, self.reward, self.terminal, {}
+            return self.state, self.reward, terminated,  {}
 
         else:
             actions = actions * self.hmax  # actions initially is scaled between 0 to 1
@@ -395,7 +395,7 @@ class StockTradingEnv(gym.Env):
                 self.state
             )  # add current state in state_recorder for each step
 
-        return self.state, self.reward, self.terminal, {}
+        return self.state, self.reward, terminated, {}
 
     def reset(self):
         # initiate state
@@ -418,7 +418,7 @@ class StockTradingEnv(gym.Env):
             )
             self.asset_memory = [previous_total_asset]
 
-        self.day = 0
+        self.day = self.seq_len - 1
         self.data = self.df.loc[self.day, :]
         self.turbulence = 0
         self.cost = 0

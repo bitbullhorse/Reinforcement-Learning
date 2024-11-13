@@ -30,6 +30,7 @@ criterion_L1Loss = nn.L1Loss()
 criterion_MSELoss = nn.MSELoss()
 
 price_dict = {}
+
 def price_split(price, train_ratio=0.8, val_ratio=0.9):
     price = price[index]
     price = price.set_index('日期_Date')
@@ -67,7 +68,7 @@ def train_mo_itransformer(epochs, model: nn.Module, CustomiTransformerDataset, p
             random.shuffle(stock_list)
             for stock_name, price in tqdm(stock_list, desc=f'Epoch {epoch+1}/{epochs} - Training'):
                 train_price, _, _ = price_split(price)
-                train_data = CustomiTransformerDataset(train_price, seqlen, pred_len)
+                train_data = CustomiTransformerDataset(train_price, seqlen, predlen)
                 train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
                 train_loss = 0
                 for inputs, target in train_loader:
@@ -99,9 +100,9 @@ def train_mo_itransformer(epochs, model: nn.Module, CustomiTransformerDataset, p
                 best_model_wts = copy.deepcopy(model.state_dict())
             print(f'Epoch {epoch+1}/{epochs}, Train Loss: {np.mean(train_losses)}, Eval Loss: {avg_eval_loss}')
         model.load_state_dict(best_model_wts)
-        torch.save(best_model_wts, f'/home/czj/pycharm_project_tmp_pytorch/强化学习/StockEnv/multi_cp/{name}_{pred_len}.pth')
     except KeyboardInterrupt:
         print('Training interrupted by user.')
+    torch.save(best_model_wts, f'/home/czj/pycharm_project_tmp_pytorch/强化学习/StockEnv/multi_cp/{name}_{predlen}.pth')
     test_losses = {}
     model.eval()
     loss_func = criterion_L1Loss
@@ -122,6 +123,186 @@ def train_mo_itransformer(epochs, model: nn.Module, CustomiTransformerDataset, p
     print(f'Test Loss: {test_losses}')
     log_training_info(name, end_time, test_losses, loss_func, predlen, model=model)
 
+
+def train_mo_itransformer_random_data(epochs, model: nn.Module, CustomiTransformerDataset, price_dict, seqlen=12, predlen=1, batch_size=16, name='cp', loss_func=criterion_MSELoss, l2_lambda=0.01):
+    model.to(device)
+    start_time = time.time()
+    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=l2_lambda)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.2)
+    best_loss = float('inf')
+    n = 10  # 每次从每个数据集取出的 batch 数
+    try:
+        for epoch in range(epochs):
+            model.train()
+            # 打乱股票数据列表
+            stock_list = list(price_dict.items())
+            random.shuffle(stock_list)
+            # 为每个股票数据集创建迭代器
+            dataloader_iterators = {}
+            for stock_name, price in stock_list:
+                train_price, _, _ = price_split(price)
+                train_data = CustomiTransformerDataset(train_price, seqlen, predlen)
+                train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+                dataloader_iterators[stock_name] = iter(train_loader)
+            # 记录尚未完成的数据集
+            remaining_stocks = set(dataloader_iterators.keys())
+            train_losses = {stock_name:0 for stock_name in remaining_stocks}
+            while remaining_stocks:
+                for stock_name in tqdm(list(remaining_stocks), desc='Processing Stocks', leave=False):
+                    data_iterator = dataloader_iterators[stock_name]
+                    batch_count = 0
+                    with tqdm(total=n, desc=f'Training {stock_name}', leave=False) as pbar:
+                        while batch_count < n:
+                            try:
+                                inputs, target = next(data_iterator)
+                                optimizer.zero_grad()
+                                output = model(inputs, stock_name)
+                                loss = loss_func(output[:, :, 0], target[:, :, 0])
+                                loss.backward()
+                                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                                optimizer.step()
+                                batch_count += 1
+                                train_losses[stock_name] += loss.item()
+                                pbar.update(1)
+                            except StopIteration:
+                                # 数据集遍历完毕，移除
+                                remaining_stocks.remove(stock_name)
+                                break
+            scheduler.step()
+            model.eval()
+            eval_losses = []
+            with torch.no_grad():
+                for stock_name, price in tqdm(price_dict.items(), desc=f'Epoch {epoch+1}/{epochs} - Evaluating'):
+                    _, eval_price, _ = price_split(price)
+                    eval_data = CustomiTransformerDataset(eval_price, seqlen, predlen)
+                    eval_loader = DataLoader(eval_data, batch_size=batch_size, shuffle=True)
+                    loss_sum = 0
+                    for inputs, target in eval_loader:
+                        output = model(inputs, stock_name)
+                        loss = loss_func(output[:, :, 0], target[:, :, 0])
+                        loss_sum += loss.item()
+                    eval_losses.append(loss_sum)                
+            avg_eval_loss = np.mean(eval_losses)
+            if avg_eval_loss < best_loss:
+                best_loss = avg_eval_loss
+                best_model_wts = copy.deepcopy(model.state_dict())
+            print(f'Epoch {epoch+1}/{epochs}, Train Loss: {np.mean(list(train_losses.values()))}, Eval Loss: {avg_eval_loss}')
+    except KeyboardInterrupt:
+        print('Training interrupted by user.')
+    torch.save(best_model_wts, f'/home/czj/pycharm_project_tmp_pytorch/强化学习/StockEnv/multi_cp/{name}_{predlen}.pth')
+    test_losses = {}
+    model.eval()
+    loss_func = criterion_L1Loss
+    with torch.no_grad():
+        for stock_name, price in tqdm(price_dict.items(), desc='Testing'):
+            _, _, test_price = price_split(price)
+            test_data = CustomiTransformerDataset(test_price, seqlen, predlen)
+            test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=True)
+            stock_test_loss = 0
+            for inputs, target in test_loader:
+                output = model(inputs, stock_name)
+                loss = loss_func(output[:, :, 0], target[:, :, 0])
+                stock_test_loss += loss.item()
+            test_losses[stock_name] = stock_test_loss
+
+    end_time = time.time()
+    print(f'Training time: {end_time - start_time}seconds')
+    print(f'Test Loss: {test_losses}')
+    log_training_info(name, end_time, test_losses, loss_func, predlen, model=model)
+
+
+def train_multi_itransformer(epochs, model:nn.Module, CustomMultiCpDataset, train_dict, eval_dict, test_dict, seqlen=12, predlen=1, batch_size=16, name='cp', loss_func=criterion_MSELoss, l2_lambda=0.01):
+    model.to(device)
+    start_time = time.time()  # 记录开始时间
+    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=l2_lambda)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.2)
+    best_loss = float('inf')
+    checkpoint_path = f'/home/czj/pycharm_project_tmp_pytorch/强化学习/StockEnv/multi_cp/{name}_checkpoint.pth'
+    
+    # 尝试加载检查点
+    if os.path.exists(checkpoint_path):
+        checkpoint = torch.load(checkpoint_path)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        best_loss = checkpoint['best_loss']
+        start_epoch = checkpoint['epoch'] + 1
+        print(f'Loaded checkpoint from epoch {start_epoch}')
+    else:
+        start_epoch = 0
+
+    try:
+        for epoch in range(start_epoch, epochs):
+            model.train()
+            train_data = CustomMultiCpDataset(train_dict, seqlen, predlen)
+            train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+            train_loss = 0
+            for inputs, target, keys in tqdm(train_loader, desc=f'Epoch {epoch+1}/{epochs} - Training'):
+                loss_sum = 0
+                optimizer.zero_grad()
+                for i, key in enumerate(keys):
+                    output = model(inputs[i].unsqueeze(0), key)
+                    loss = loss_func(output[:,:,0], target[i,:,0].unsqueeze(0))
+                    loss_sum += loss
+                loss_sum.backward()    
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                optimizer.step()
+                train_loss += loss_sum.item()
+            scheduler.step()
+            model.eval()
+            eval_losses = {}
+            with torch.no_grad():
+                eval_data = CustomMultiCpDataset(eval_dict, seqlen, predlen)
+                eval_loader = DataLoader(eval_data, batch_size=batch_size, shuffle=True)
+                for inputs, target, keys in tqdm(eval_loader, desc=f'Epoch {epoch+1}/{epochs} - Evaluating'):
+                    for i, key in enumerate(keys):
+                        output = model(inputs[i].unsqueeze(0), key)
+                        loss = loss_func(output[:,:,0], target[i,:,0])
+                        if key not in eval_losses:
+                            eval_losses[key] = loss.item()
+                        else:
+                            eval_losses[key] += loss.item()
+            avg_eval_loss = np.mean(list(eval_losses.values()))
+            if avg_eval_loss < best_loss:
+                best_loss = avg_eval_loss
+                best_model_wts = copy.deepcopy(model.state_dict())
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': best_model_wts,
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'scheduler_state_dict': scheduler.state_dict(),
+                    'best_loss': best_loss
+                }, checkpoint_path)  # 保存检查点
+            print(f'Epoch {epoch+1}/{epochs}, Train Loss: {train_loss / len(eval_losses)}, Eval Loss: {avg_eval_loss}')
+        model.load_state_dict(best_model_wts)
+        torch.save(best_model_wts, f'/home/czj/pycharm_project_tmp_pytorch/强化学习/StockEnv/multi_cp/{name}_{predlen}.pth')
+    except KeyboardInterrupt:
+        print('Training interrupted by user.')
+    test_losses = {}
+    model.eval()
+    loss_func = criterion_L1Loss
+    with torch.no_grad():
+        test_data = CustomMultiCpDataset(test_dict, seqlen, predlen)
+        test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
+        for inputs, target, keys in tqdm(test_loader, desc='Testing'):
+            for i, key in enumerate(keys):
+                output = model(inputs[i].unsqueeze(0), key)
+                loss = loss_func(output[:,:,0], target[i,:,0].unsqueeze(0))
+                if key not in test_losses:
+                    test_losses[key] = loss.item()
+                else:
+                    test_losses[key] += loss.item()
+    end_time = time.time()
+    print(f'Training time: {end_time - start_time}seconds')
+    print(f'Test Loss: {test_losses}')
+    log_training_info(name, end_time, test_losses, loss_func, predlen, model=model)
+
+
+
+train_dict = {}
+eval_dict = {}
+test_dict = {}
+
 for stock_name in stock_names:
     file_path = data_path + stock_name + '/'
     file_names = os.listdir(file_path)
@@ -131,7 +312,12 @@ for stock_name in stock_names:
         sheet_name = pd.ExcelFile(xls_path).sheet_names[0]
         new_price = pd.read_excel(xls_path, sheet_name=sheet_name, header=0)
         price = pd.concat([price, new_price])
+    print(f'Loaded {stock_name} data.')
     price_dict[stock_name] = price
+    train_price, eval_price, test_price = price_split(price)
+    train_dict[stock_name] = train_price
+    eval_dict[stock_name] = eval_price
+    test_dict[stock_name] = test_price
 
 if __name__ == '__main__':
     dmodel = 256
@@ -144,7 +330,14 @@ if __name__ == '__main__':
     # for pred_len in pred_lens:
     #     model = multi_iTransformer(d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=4096, keys=stock_names,pred_len=pred_len)
     #     train_mo_itransformer(EPOCHS, model, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name='iTransformer_multi_out', loss_func=criterion_MSELoss)
+    # for pred_len in pred_lens:
+    #     model = multi_iTransformer_multi_Dec(len(index) - 1,d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=4096, keys=stock_names,pred_len=pred_len)
+    #     train_mo_itransformer(EPOCHS, model, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name='iTransformer_multi_dec', loss_func=criterion_MSELoss)
     
+    # for pred_len in pred_lens:
+    #     model = multi_iTransformer_multi_Dec(len(index) - 1,d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=4096, keys=stock_names,pred_len=pred_len)
+    #     train_multi_itransformer(EPOCHS, model, CustomMultiCpDataset, train_dict, eval_dict, test_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name='iTransformer_multi_dec_1', loss_func=criterion_MSELoss)
+
     for pred_len in pred_lens:
         model = multi_iTransformer_multi_Dec(len(index) - 1,d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=4096, keys=stock_names,pred_len=pred_len)
-        train_mo_itransformer(EPOCHS, model, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name='iTransformer_multi_dec', loss_func=criterion_MSELoss)
+        train_mo_itransformer_random_data(EPOCHS, model, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name='iTransformer_multi_dec_random', loss_func=criterion_MSELoss)
