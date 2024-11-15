@@ -133,7 +133,7 @@ def train_iTranformer(model, epochs, train_loader:Dataloader, test_Loss, optimiz
     saved_flag = False
     try:
         for epoch in range(epochs):
-            print(f'*******predlen:{model.pred_len}, epoch:{epoch},model:iTransformer_{model.pred_len}******')
+            print(f'*******predlen:{model.pred_len}, epoch:{epoch},model:iTransformer_{model.pred_len},stock_num:{stock_num}******')
             for x, y in tqdm(train_loader, desc=f'Epoch {epoch+1}/{epochs}', unit='batch'):
                 optimizer.zero_grad()
                 count += 1

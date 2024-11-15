@@ -1,18 +1,15 @@
 import os
 import pandas as pd
-import torch.nn as nn
-import torch
-from ding.torch_utils.network import GTrXL
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
-import gym
 from stable_baselines3 import PPO
-
 
 import config
 from preprocessors import FeatureEngineer, data_split
 
 from StockEnv.StockEnv import StockTradingEnv
 from StockEnv.config import INDICATORS as INDICATORS
+from GTrXL import GTrXLExtractor
+
+from DRLAgent import DRLAgent
 
 stock_nums = ['000001', '600031',]
 index = ['日期_Date', '股票代码_Stkcd', '收盘价_Clpr', '开盘价_Oppr', '最高价_Hipr', '最低价_Lopr', '复权价1(元)_AdjClpr1',
@@ -104,31 +101,17 @@ env_kwargs = {
     'dmodel':256
 }
 
+PPO_kwargs = {
+    "n_steps": 2048,
+    "ent_coef": 0.01,
+    "learning_rate": 0.00025,
+    "batch_size": 64,
+}
+
 env = StockTradingEnv(df, **env_kwargs)
 
-class CustomFeatureExtractor(BaseFeaturesExtractor):
-    def __init__(self, observation_space: gym.Space, features_dim: int = 64):
-        super(CustomFeatureExtractor, self).__init__(observation_space, features_dim)
-        # 将输入维度映射到GTrXL的输入维度
-        self.initial_fc = nn.Linear(observation_space.shape[0], 20)
-        # 使用GTrXL作为特征提取的一部分
-        self.gtrxl = GTrXL(input_dim=20, gru_gating=False)
-        # 额外的全连接层
-        # self.final_fc = nn.Linear(observation_space.shape[0], features_dim)
-        self.final_fc = nn.Linear(256, features_dim)
-
-    
-    def forward(self, observations: torch.Tensor) -> torch.Tensor:
-        x = self.initial_fc(observations)
-        x = self.gtrxl(x.unsqueeze(0), batch_first=True)
-        x = self.final_fc(x['logit'].squeeze(0))  # 去除第一个维度
-        # x = self.final_fc(observations)
-
-        return x
-
-
 policy_kwargs = dict(
-    features_extractor_class=CustomFeatureExtractor,
+    features_extractor_class=GTrXLExtractor,
     features_extractor_kwargs=dict(features_dim=64),  # 根据需要调整
 )
 GTrXL_PPO = PPO(
@@ -137,6 +120,11 @@ GTrXL_PPO = PPO(
     policy_kwargs=policy_kwargs,  # 将 features_extractor_class 放在 policy_kwargs 中
     verbose=1,
     tensorboard_log="/home/czj/pycharm_project_tmp_pytorch/强化学习/StockEnv/tensorboard/",
+    **PPO_kwargs,
 )
 
-GTrXL_PPO.learn(total_timesteps=100000)
+agent = DRLAgent(env=env)
+
+model_ppo = agent.get_model("ppo",model_kwargs = config.PPO_PARAMS, policy_kwargs=policy_kwargs)
+
+

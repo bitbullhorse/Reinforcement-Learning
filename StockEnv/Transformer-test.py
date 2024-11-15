@@ -1,16 +1,12 @@
-import numpy as np
-import scipy.stats as st
-from numpy import sqrt
-import matplotlib.pyplot as plt
 import pandas as pd
 import os
-from arch import arch_model
 from Transformer import *
 from datautil import *
-from torch.utils.data import DataLoader as Dataloader
 from train_func import train_iTranformer, train_transformer
-
-import config
+try:
+    from StockEnv import config
+except:
+    import config
 
 from iTransformer_model import iTransformer
 
@@ -110,7 +106,7 @@ if __name__ == '__main__':
             # 确认列索引是否在范围内
             new_price = pd.read_excel(xls_path, sheet_name=sheet_name, header=0)
             price = pd.concat([price, new_price])
-        pred_lens = [1, 5, 10]
+        pred_lens = [5,10]
         for pred_len in pred_lens:
             model = iTransformer(d_model=128, n_head=8, nlayers=6, seq_len=seqlen, d_ff=512, pred_len=pred_len)
             train_itransformer_cp(EPOCHS, model, CustomiTransformerDatasetCp, stock_num, price, seqlen, pred_len, batch_size, name='cp', loss_func=criterion_L1Loss)

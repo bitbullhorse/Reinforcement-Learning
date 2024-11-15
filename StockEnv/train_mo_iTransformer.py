@@ -1,5 +1,6 @@
 import copy
 import os
+from matplotlib import pyplot as plt
 import pandas as pd
 import torch.nn as nn
 import torch.optim as optim
@@ -10,6 +11,7 @@ from datautil import *
 from iTransformer_model import multi_iTransformer
 from iTransformer_model import multi_iTransformer_Dec
 from iTransformer_model import multi_iTransformer_multi_Dec
+from iTransformer_model import iTransformer
 import time
 import random  # 添加随机模块
 
@@ -44,6 +46,7 @@ def price_split(price, train_ratio=0.8, val_ratio=0.9):
     test_price = price[val_end:]
 
     return train_price, eval_price, test_price
+
 
 def log_training_info(model_name, end_time, test_losses, loss_func, predlen=None, model=None):
     log_path = os.path.join('/home/czj/pycharm_project_tmp_pytorch/强化学习/StockEnv/multi_cp', f'{model_name}_log.txt')
@@ -124,13 +127,71 @@ def train_mo_itransformer(epochs, model: nn.Module, CustomiTransformerDataset, p
     log_training_info(name, end_time, test_losses, loss_func, predlen, model=model)
 
 
+def plot_result(model_name,stock_name, label, pred):
+    fig, axes = plt.subplots(1, 1)
+    axes.grid(True, axis='y')  # 仅添加水平网格
+    axes.grid(True, axis='x')  # 仅添加垂直网格
+    axes.plot(label, 'b-', label='label')
+    axes.plot(pred, 'r-', label='predict')
+    axes.set_title('Close Price')
+    axes.set_xlabel('day')
+    axes.set_ylabel('price')
+    plt.legend()
+    plt.subplots_adjust(hspace=0.5)
+    path = '/home/czj/pycharm_project_tmp_pytorch/强化学习/StockEnv/multi_cp/' + model_name
+    os.makedirs(path, exist_ok=True)
+    plt.savefig(path + '/' + f'{stock_name}.png')
+
+
+def iTransformer_test(model: nn.Module, CustomiTransformerDataset, price_dict, seqlen=12, predlen=1, batch_size=16, name='cp', loss_func=criterion_MSELoss,):
+    model.to(device)
+    test_losses = {}
+    model.eval()
+    better_count = 0
+    with torch.no_grad():
+        for stock_name, price in tqdm(price_dict.items(), desc='Testing'):
+            _, _, test_price = price_split(price)
+            label = []
+            pred = []
+            test_data = CustomiTransformerDataset(test_price, seqlen, predlen)
+            test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
+            stock_test_loss = 0
+            for inputs, target in test_loader:
+                output = model(inputs, stock_name)
+                loss = loss_func(output[:, :, 0], target[:, :, 0])
+                stock_test_loss += loss.item()
+                output = output[:, -1, 0].reshape(-1).tolist()  # 使用 reshape
+                target = target[:, -1, 0].reshape(-1).tolist()
+                label += target
+                pred += output
+            test_losses[stock_name] = stock_test_loss
+            if predlen == 1:
+                plot_result(name, stock_name, label, pred)
+            itransformer = iTransformer(d_model=128, n_head=8, nlayers=6, seq_len=seqlen, d_ff=512, pred_len=predlen)
+            itransformer.load_state_dict(torch.load(f'/home/czj/pycharm_project_tmp_pytorch/强化学习/StockEnv/saved_model/{stock_name}/cp/iTransformer_1.pth'))
+            itransformer.to(device)
+            itransformer.eval()
+            test_loss = 0
+            for inputs, target in test_loader:
+                output = itransformer(inputs)
+                loss = loss_func(output[:, :, 0], target[:, :, 0])
+                test_loss += loss.item()
+            
+            if stock_test_loss / len(test_data) < test_loss / len(test_data):
+                better_count += 1
+
+    print(f'Test Loss: {test_losses}')
+    log_training_info(name, time.time(), test_losses, loss_func, predlen, model=model)
+    return test_losses, better_count
+
+
 def train_mo_itransformer_random_data(epochs, model: nn.Module, CustomiTransformerDataset, price_dict, seqlen=12, predlen=1, batch_size=16, name='cp', loss_func=criterion_MSELoss, l2_lambda=0.01):
     model.to(device)
     start_time = time.time()
     optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=l2_lambda)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.2)
     best_loss = float('inf')
-    n = 10  # 每次从每个数据集取出的 batch 数
+    n = 50  # 每次从每个数据集取出的 batch 数
     try:
         for epoch in range(epochs):
             model.train()
@@ -299,6 +360,8 @@ def train_multi_itransformer(epochs, model:nn.Module, CustomMultiCpDataset, trai
 
 
 
+
+
 train_dict = {}
 eval_dict = {}
 test_dict = {}
@@ -326,18 +389,62 @@ if __name__ == '__main__':
     EPOCHS = 200
     start_len = 5
     end_len = 11
-    pred_lens = [1]
-    # for pred_len in pred_lens:
-    #     model = multi_iTransformer(d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=4096, keys=stock_names,pred_len=pred_len)
-    #     train_mo_itransformer(EPOCHS, model, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name='iTransformer_multi_out', loss_func=criterion_MSELoss)
-    # for pred_len in pred_lens:
-    #     model = multi_iTransformer_multi_Dec(len(index) - 1,d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=4096, keys=stock_names,pred_len=pred_len)
-    #     train_mo_itransformer(EPOCHS, model, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name='iTransformer_multi_dec', loss_func=criterion_MSELoss)
+    pred_lens = [5, 10]
+
+    for pred_len in pred_lens:
+        model = multi_iTransformer(d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=4096, keys=stock_names,pred_len=pred_len)
+        train_mo_itransformer(EPOCHS, model, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name='iTransformer_multi_out', loss_func=criterion_MSELoss)
+    for pred_len in pred_lens:
+        model = multi_iTransformer_multi_Dec(len(index) - 1,d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=4096, keys=stock_names,pred_len=pred_len)
+        train_mo_itransformer(EPOCHS, model, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name='iTransformer_multi_dec', loss_func=criterion_MSELoss)
     
     # for pred_len in pred_lens:
     #     model = multi_iTransformer_multi_Dec(len(index) - 1,d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=4096, keys=stock_names,pred_len=pred_len)
     #     train_multi_itransformer(EPOCHS, model, CustomMultiCpDataset, train_dict, eval_dict, test_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name='iTransformer_multi_dec_1', loss_func=criterion_MSELoss)
 
-    for pred_len in pred_lens:
-        model = multi_iTransformer_multi_Dec(len(index) - 1,d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=4096, keys=stock_names,pred_len=pred_len)
-        train_mo_itransformer_random_data(EPOCHS, model, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name='iTransformer_multi_dec_random', loss_func=criterion_MSELoss)
+    # for pred_len in pred_lens:
+    #     model = multi_iTransformer_multi_Dec(len(index) - 1,d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=4096, keys=stock_names,pred_len=pred_len)
+    #     train_mo_itransformer_random_data(EPOCHS, model, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name='iTransformer_multi_dec_random', loss_func=criterion_MSELoss)
+
+    model_out = multi_iTransformer(d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=4096, keys=stock_names,pred_len=1)
+    model_out.load_state_dict(torch.load('/home/czj/pycharm_project_tmp_pytorch/强化学习/StockEnv/multi_cp/iTransformer_multi_out_1.pth'))
+    model_dec = multi_iTransformer_multi_Dec(len(index) - 1,d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=4096, keys=stock_names,pred_len=1)
+    model_dec.load_state_dict(torch.load('/home/czj/pycharm_project_tmp_pytorch/强化学习/StockEnv/multi_cp/iTransformer_multi_dec_1.pth'))
+    loss_list = [criterion_L1Loss, criterion_MSELoss]
+    out_result_list = []
+    dec_result_list = []
+    out_result, out_count = iTransformer_test(model_out, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=1, batch_size=batch_size, name='iTransformer_multi_out', loss_func=criterion_MSELoss)
+    out_result_list.append(out_result)
+    dec_result, dec_count = iTransformer_test(model_dec, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=1, batch_size=batch_size, name='iTransformer_multi_dec', loss_func=criterion_MSELoss)
+    dec_result_list.append(dec_result)
+    print(f'模型_out 在 {out_count} 只股票上表现更优')
+    print(f'模型_dec 在 {dec_count} 只股票上表现更优')
+    
+    # 计算每只股票的平均损失
+    avg_out = {}
+    avg_dec = {}
+    for result in out_result_list:
+        for stock, loss in result.items():
+            avg_out[stock] = avg_out.get(stock, 0) + loss
+    for stock in avg_out:
+        avg_out[stock] /= len(out_result_list)
+
+    for result in dec_result_list:
+        for stock, loss in result.items():
+            avg_dec[stock] = avg_dec.get(stock, 0) + loss
+    for stock in avg_dec:
+        avg_dec[stock] /= len(dec_result_list)
+
+    # 比较两个模型的平均损失，并统计表现更优的股票数量
+    better_out = 0
+    better_dec = 0
+    for stock in avg_out:
+        if avg_out[stock] < avg_dec[stock]:
+            better_out += 1
+            print(f'{stock}: model_out 更优')
+        else:
+            better_dec += 1
+            print(f'{stock}: model_dec 更优')
+    
+    print(f'模型_out 在 {better_out} 只股票上表现更优')
+    print(f'模型_dec 在 {better_dec} 只股票上表现更优')

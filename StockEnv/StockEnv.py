@@ -65,7 +65,8 @@ class StockTradingEnv(gym.Env):
                  nlayers = 6,
                  d_ff = 2048,
                  keys=List[str],
-                 dmodel = 256
+                 dmodel = 256,
+                 use_vec = True,
                  ):
         super(StockTradingEnv, self).__init__()
         self.df = df
@@ -76,6 +77,7 @@ class StockTradingEnv(gym.Env):
         self.d_ff = d_ff
         self.keys = keys
         self.dmodel = dmodel
+        self.use_vec = use_vec
 
         self.day = self.seq_len - 1
 
@@ -456,7 +458,7 @@ class StockTradingEnv(gym.Env):
                     )
                     + sum(
                         (
-                            self.predictors[key](self.to_tensor(key).unsqueeze(0))[:,-1,0].tolist()
+                            self.predictors[key](self.to_tensor(key).unsqueeze(0))[:,-1,0 if not self.use_vec else 0:-1].tolist()
                             for key in self.keys
                         ),
                         [],
@@ -489,7 +491,7 @@ class StockTradingEnv(gym.Env):
                     )
                     + sum(
                         (
-                            self.predictors[key](self.to_tensor(key).unsqueeze(0))[:, -1, 0].tolist()
+                            self.predictors[key](self.to_tensor(key).unsqueeze(0))[:, -1, 0 if not self.use_vec else 0 : -1].tolist()
                             for key in self.keys
                         ),
                         [],
@@ -524,7 +526,7 @@ class StockTradingEnv(gym.Env):
                 )
                 + sum(
                     (
-                        self.predictors[key](self.to_tensor(key).unsqueeze(0))[:, -1, 0].tolist()
+                        self.predictors[key](self.to_tensor(key).unsqueeze(0))[:, -1, 0 if not self.use_vec else 0:-1].tolist()
                         for key in self.keys
                     ),
                     [],
