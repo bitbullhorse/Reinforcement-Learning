@@ -14,9 +14,14 @@ from stable_baselines3.common.noise import NormalActionNoise
 from stable_baselines3.common.noise import OrnsteinUhlenbeckActionNoise
 from stable_baselines3.common.vec_env import DummyVecEnv
 
+from lstm_policy import CustomActorCriticPolicy
+
 import config
 MODELS = {"a2c": A2C, "ddpg": DDPG, "td3": TD3, "sac": SAC, "ppo": PPO}
-MODEL_KWARGS = {x: config.__dict__[f"{x.upper()}_PARAMS"] for x in MODELS.keys()}
+try:
+    MODEL_KWARGS = {x: config.__dict__[f"{x.upper()}_PARAMS"] for x in MODELS.keys()}
+except BaseException:
+    pass
 
 NOISE = {
     "normal": NormalActionNoise,
@@ -82,7 +87,6 @@ class DRLAgent:
             model_kwargs["action_noise"] = NOISE[model_kwargs["action_noise"]](
                 mean=np.zeros(n_actions), sigma=0.1 * np.ones(n_actions)
             )
-        print(model_kwargs)
         return MODELS[model_name](
             policy=policy,
             env=self.env,
@@ -114,15 +118,13 @@ class DRLAgent:
             # account_memory = test_env.env_method(method_name="save_asset_memory")
             # actions_memory = test_env.env_method(method_name="save_action_memory")
             test_obs, rewards, dones, info = test_env.step(action)
-            if i == (len(environment.df.index.unique()) - 2):
+            if i == (len(environment.df.index.unique()) - environment.seq_len - 1):
                 account_memory = test_env.env_method(method_name="save_asset_memory")
                 actions_memory = test_env.env_method(method_name="save_action_memory")
             #                 state_memory=test_env.env_method(method_name="save_state_memory") # add current state to state memory
             if dones[0]:
                 print("hit end!")
                 break
-        print(type(account_memory))
-        print(type(actions_memory))
         return account_memory[0], actions_memory[0]
 
     @staticmethod

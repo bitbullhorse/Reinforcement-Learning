@@ -11,7 +11,7 @@ import numpy as np
 #from collections import OrderedDict
 from layers.PatchTSTlayers import *
 from layers.RevIN import RevIN
-import PatchTSTlayers as ptstl
+from layers.PatchTSTlayers import *
 
 # Cell
 class PatchTST_backbone(nn.Module):

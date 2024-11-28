@@ -29,8 +29,12 @@ def log_training_info(path, model_name, end_time, loss_sum, loss_func, predlen=N
     end_time_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(end_time))  # 转换时间格式
     with open(log_path, 'a') as log_file:
         if predlen is None:
-            log_file.write(f'Model: {model_name}, settings:dmodel:{model.d_model}, nhead:{model.n_head} nlayers:{model.nlayers} seqlen:{model.seq_len} d_ff:{model.d_ff} pred_len:{model.pred_len}\
+            try:
+                log_file.write(f'Model: {model_name}, settings:dmodel:{model.d_model}, nhead:{model.n_head} nlayers:{model.nlayers} seqlen:{model.seq_len} d_ff:{model.d_ff} pred_len:{model.pred_len}\
                            \n        End Time: {end_time_str}, Loss: {loss_sum}, Loss_func: {(str(type(loss_func))[8:-2]).split(".")[-1]}\n')
+            except:
+                log_file.write(f'Model: {model_name}, settings:seq_len:{model.seq_len} pred_len:{model.pred_len}\
+                           \n        End Time: {end_time_str}, Loss: {loss_sum}, Loss_func: {(str(type(loss_func))[8:-2]).split(".")[-1]}\n')    
         else:
             model_setting = model.__dict__
             tmp = {}
@@ -120,7 +124,7 @@ def train_transformer(model, epochs, train_loader:Dataloader, Loss, optimizer, s
     log_training_info(path, str(type(model))[20:-2], end_time, loss_sum, Loss, pred_len, model=model)  # 调整参数顺序
 
 def train_iTranformer(model, epochs, train_loader:Dataloader, test_Loss, optimizer, scheduler, eval_loader:Dataloader, \
-                      test_loader:Dataloader, stock_num:str = None, name:str=None):
+                      test_loader:Dataloader, stock_num:str = None, name:str=None,model_name='iTransformer'):
     start_time = time.time()  # 记录开始时间
     model.train()
     model.to(device)
@@ -133,7 +137,7 @@ def train_iTranformer(model, epochs, train_loader:Dataloader, test_Loss, optimiz
     saved_flag = False
     try:
         for epoch in range(epochs):
-            print(f'*******predlen:{model.pred_len}, epoch:{epoch},model:iTransformer_{model.pred_len},stock_num:{stock_num}******')
+            print(f'*******predlen:{model.pred_len}, epoch:{epoch},model:{model_name}_{model.pred_len},stock_num:{stock_num}******')
             for x, y in tqdm(train_loader, desc=f'Epoch {epoch+1}/{epochs}', unit='batch'):
                 optimizer.zero_grad()
                 count += 1
@@ -142,7 +146,6 @@ def train_iTranformer(model, epochs, train_loader:Dataloader, test_Loss, optimiz
                 loss.backward()
                 optimizer.step()
             print(f'***************************************************')
-
             scheduler.step()
             loss_sum = 0
             for x, y in eval_loader:
@@ -152,7 +155,7 @@ def train_iTranformer(model, epochs, train_loader:Dataloader, test_Loss, optimiz
             print('Eval Loss:', loss_sum)
             if loss_sum < minloss:
                 minloss = loss_sum
-                torch.save(model.state_dict(), path + '/' + f'iTransformer_{model.pred_len}.pth')
+                torch.save(model.state_dict(), path + '/' + f'{model_name}_{model.pred_len}.pth')
                 saved_flag = True
             loss_list.append(loss_sum)
     except KeyboardInterrupt:
@@ -164,7 +167,7 @@ def train_iTranformer(model, epochs, train_loader:Dataloader, test_Loss, optimiz
     pred = []
     if epoch >= 2:
         loss_list = normalize_list(loss_list)
-    model.load_state_dict(torch.load(path + '/' + f'iTransformer_{model.pred_len}.pth'))
+    model.load_state_dict(torch.load(path + '/' + f'{model_name}_{model.pred_len}.pth'))
     model.eval()
     loss_sum = 0
     for x, y in test_loader:
@@ -190,11 +193,10 @@ def train_iTranformer(model, epochs, train_loader:Dataloader, test_Loss, optimiz
     axes[1].set_ylabel('price')
     plt.legend()
     plt.subplots_adjust(hspace=0.5)
-    plt.savefig(path + '/' + f'iTransformer_loss&close_{model.pred_len}.png')
+    plt.savefig(path + '/' + f'{model_name}_loss&close_{model.pred_len}.png')
     plt.show()
     
     end_time = time.time()  # 记录结束时间
     print(f'Training time: {end_time - start_time} seconds')  # 打印训练时间
-    log_training_info(path, f'iTransformer', end_time, loss_sum, test_Loss, model=model)  # 调整参数顺序
-
+    log_training_info(path, model_name, end_time, loss_sum, test_Loss, model=model)  # 调整参数顺序
 

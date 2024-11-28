@@ -10,6 +10,7 @@ from StockEnv.iTransformer_model import *
 import torch
 
 from StockEnv.iTransformer_model import iTransformer
+reset_count = 0
 
 ENV_INDEX = [
          'close',
@@ -32,6 +33,25 @@ ENV_INDEX = [
          '总市值加权平均日资本收益_Daretmc',
          '日无风险收益率_DRfRet',
          '市盈率_PE']
+
+FINRL_INDEX = [
+    'close',
+    'open',
+    'high',
+    'low',
+    'volume',
+]
+
+FINRL_INDICATORS = [
+    "macd",
+    "boll_ub",
+    "boll_lb",
+    "rsi_30",
+    "cci_30",
+    "dx_30",
+    "close_30_sma",
+    "close_60_sma",
+]
 
 device = 'cuda'
 
@@ -66,7 +86,11 @@ class StockTradingEnv(gym.Env):
                  d_ff = 2048,
                  keys=List[str],
                  dmodel = 256,
-                 use_vec = True,
+                 use_vec = False,
+                 use_predictor = False,
+                 use_frl_indicators = True,
+                 use_gtrxl = False,
+                 T = 12
                  ):
         super(StockTradingEnv, self).__init__()
         self.df = df
@@ -78,6 +102,7 @@ class StockTradingEnv(gym.Env):
         self.keys = keys
         self.dmodel = dmodel
         self.use_vec = use_vec
+        self.use_predictor = use_predictor
 
         self.day = self.seq_len - 1
 
@@ -104,9 +129,12 @@ class StockTradingEnv(gym.Env):
         self.reward_scaling = reward_scaling
         self.state_space = state_space
         self.action_space = action_space
-        self.tech_indicator_list = tech_indicator_list
+        if use_frl_indicators:
+            self.tech_indicator_list = FINRL_INDICATORS
+        else:
+            self.tech_indicator_list = tech_indicator_list
         self.action_space = spaces.Box(low=-1, high=1, shape=(self.action_space,))
-
+        
         self.data = self.df.loc[self.day, :]
         self.terminal = False
         self.make_plots = make_plots
@@ -124,6 +152,12 @@ class StockTradingEnv(gym.Env):
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(len(self.state),)
         )
+        self.use_gtrxl = use_gtrxl
+        self.T = T
+        if self.use_gtrxl:
+            self.observation_space = spaces.Box(
+                low=-np.inf, high=np.inf, shape=(self.T, len(self.state))
+            )
         # initialize reward
         self.reward = 0
         self.turbulence = 0
@@ -143,10 +177,14 @@ class StockTradingEnv(gym.Env):
         self.state_memory = (
             []
         )  # we need sometimes to preserve the state in the middle of trading process
+        zero_tmp = [0] * len(self.state)
+        self.gtrxl_state = [zero_tmp] * (self.T - 1)
+        self.gtrxl_state.append(self.state)
         self.date_memory = [self._get_date()]
         #         self.logger = Logger('results',[CSVOutputFormat])
         # self.reset()
         self._seed()
+        self.reset_count = 0
 
 
     def _sell_stock(self, index, action):
@@ -342,8 +380,13 @@ class StockTradingEnv(gym.Env):
             # logger.record("environment/total_reward_pct", (tot_reward / (end_total_asset - tot_reward)) * 100)
             # logger.record("environment/total_cost", self.cost)
             # logger.record("environment/total_trades", self.trades)
-
-            return self.state, self.reward, terminated,  {}
+            if self.use_gtrxl:
+                self.gtrxl_state.append(self.state)
+                if len(self.gtrxl_state) > self.T:
+                    self.gtrxl_state.pop(0)
+                return self.gtrxl_state, self.reward, terminated, {}
+ 
+            return self.state, self.reward, terminated,{}
 
         else:
             actions = actions * self.hmax  # actions initially is scaled between 0 to 1
@@ -366,13 +409,20 @@ class StockTradingEnv(gym.Env):
             for index in sell_index:
                 # print(f"Num shares before: {self.state[index+self.stock_dim+1]}")
                 # print(f'take sell action before : {actions[index]}')
-                actions[index] = self._sell_stock(index, actions[index]) * (-1)
+                try:
+                    actions[index] = self._sell_stock(index, actions[index]) * (-1)
+                except:
+                    print(actions)
+
                 # print(f'take sell action after : {actions[index]}')
                 # print(f"Num shares after: {self.state[index+self.stock_dim+1]}")
 
             for index in buy_index:
                 # print('take buy action: {}'.format(actions[index]))
-                actions[index] = self._buy_stock(index, actions[index])
+                try:
+                    actions[index] = self._buy_stock(index, actions[index])
+                except:
+                    print(actions)
 
             self.actions_memory.append(actions)
 
@@ -398,13 +448,18 @@ class StockTradingEnv(gym.Env):
             self.state_memory.append(
                 self.state
             )  # add current state in state_recorder for each step
-
+        if self.use_gtrxl:
+            self.gtrxl_state.append(self.state)
+            if len(self.gtrxl_state) > self.T:
+                self.gtrxl_state.pop(0)
+            return self.gtrxl_state, self.reward, terminated, {}
         return self.state, self.reward, terminated, {}
 
     def reset(self):
         # initiate state
         self.state = self._initiate_state()
-
+        self.gtrxl_state = [[0] * len(self.state)] * (self.T - 1)
+        self.reset_count += 1
         if self.initial:
             self.asset_memory = [
                 self.initial_amount
@@ -435,6 +490,12 @@ class StockTradingEnv(gym.Env):
 
         self.episode += 1
 
+        if self.use_gtrxl:
+            self.gtrxl_state.append(self.state)
+            if len(self.gtrxl_state) > self.T:
+                self.gtrxl_state.pop(0)
+            return self.gtrxl_state
+
         return self.state
 
     def to_tensor(self, key):
@@ -456,14 +517,15 @@ class StockTradingEnv(gym.Env):
                         ),
                         [],
                     )
-                    + sum(
+                )  # append initial stocks_share to initial state, instead of all zero
+                if self.use_predictor:
+                    state += sum(
                         (
-                            self.predictors[key](self.to_tensor(key).unsqueeze(0))[:,-1,0 if not self.use_vec else 0:-1].tolist()
+                            self.predictors[key](self.to_tensor(key).unsqueeze(0))[:, -1, 0].tolist()
                             for key in self.keys
                         ),
                         [],
                     )
-                )  # append initial stocks_share to initial state, instead of all zero
             else:
                 # for single stock
                 state = (
@@ -489,14 +551,15 @@ class StockTradingEnv(gym.Env):
                         ),
                         [],
                     )
-                    + sum(
+                )
+                if self.use_predictor:
+                    state += sum(
                         (
-                            self.predictors[key](self.to_tensor(key).unsqueeze(0))[:, -1, 0 if not self.use_vec else 0 : -1].tolist()
+                            self.predictors[key](self.to_tensor(key).unsqueeze(0))[:, -1, 0].tolist()
                             for key in self.keys
                         ),
                         [],
                     )
-                )
             else:
                 # for single stock
                 state = (
@@ -524,15 +587,15 @@ class StockTradingEnv(gym.Env):
                     ),
                     [],
                 )
-                + sum(
-                    (
-                        self.predictors[key](self.to_tensor(key).unsqueeze(0))[:, -1, 0 if not self.use_vec else 0:-1].tolist()
-                        for key in self.keys
-                    ),
-                    [],
-                )
             )
-
+            if self.use_predictor:
+                state  += sum(
+                        (
+                            self.predictors[key](self.to_tensor(key).unsqueeze(0))[:, -1, 0].tolist()
+                            for key in self.keys
+                        ),
+                        [],
+                )
         else:
             # for single stock
             state = (

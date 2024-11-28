@@ -8,73 +8,79 @@ from torch import Tensor
 import torch.nn.functional as F
 import numpy as np
 
-from layers.PatchTST_backbone import PatchTST_backbone
-from layers.PatchTSTlayers import series_decomp
+try:
+    from .layers.PatchTST_backbone import PatchTST_backbone
+except:
+    from layers.PatchTST_backbone import PatchTST_backbone
+try:
+    from .layers.PatchTSTlayers import series_decomp
+except:
+    from layers.PatchTSTlayers import series_decomp
 
 
 class Model(nn.Module):
-    def __init__(self, configs, max_seq_len:Optional[int]=1024, d_k:Optional[int]=None, d_v:Optional[int]=None, norm:str='BatchNorm', attn_dropout:float=0., 
+    def __init__(self, cin,seq_len,pred_len,nlayers,nheads,dmodel,d_ff,dropout=0.2,fc_dropout=0.2,head_dropout=0,patch_len=12,stride=8,configs = None, max_seq_len:Optional[int]=1024, d_k:Optional[int]=None, d_v:Optional[int]=None, norm:str='BatchNorm', attn_dropout:float=0., 
                  act:str="gelu", key_padding_mask:bool='auto',padding_var:Optional[int]=None, attn_mask:Optional[Tensor]=None, res_attention:bool=True, 
                  pre_norm:bool=False, store_attn:bool=False, pe:str='zeros', learn_pe:bool=True, pretrain_head:bool=False, head_type = 'flatten', verbose:bool=False, **kwargs):
         
         super().__init__()
         
         # load parameters
-        c_in = configs.enc_in
-        context_window = configs.seq_len
-        target_window = configs.pred_len
+        self.c_in = cin
+        self.seq_len = seq_len
+        self.pred_len = pred_len
         
-        n_layers = configs.e_layers
-        n_heads = configs.n_heads
-        d_model = configs.d_model
-        d_ff = configs.d_ff
-        dropout = configs.dropout
-        fc_dropout = configs.fc_dropout
-        head_dropout = configs.head_dropout
+        self.nlayers = nlayers
+        self.n_head = nheads
+        self.d_model = dmodel
+        self.d_ff = d_ff
+        self.dropout = dropout
+        self.fc_dropout = fc_dropout
+        self.head_dropout = head_dropout
         
-        individual = configs.individual
+        self.individual = 0
     
-        patch_len = configs.patch_len
-        stride = configs.stride
-        padding_patch = configs.padding_patch
+        self.patch_len = patch_len
+        self.stride = stride
+        self.padding_patch = 'end'
         
-        revin = configs.revin
-        affine = configs.affine
-        subtract_last = configs.subtract_last
+        self.revin = 1
+        self.affine = 0
+        self.subtract_last = 0
         
-        decomposition = configs.decomposition
-        kernel_size = configs.kernel_size
+        self.decomposition = 0
+        self.kernel_size = 25
         
         
         # model
-        self.decomposition = decomposition
         if self.decomposition:
-            self.decomp_module = series_decomp(kernel_size)
-            self.model_trend = PatchTST_backbone(c_in=c_in, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
-                                  max_seq_len=max_seq_len, n_layers=n_layers, d_model=d_model,
-                                  n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, norm=norm, attn_dropout=attn_dropout,
+            self.decomp_module = series_decomp(self.kernel_size)
+            self.model_trend = PatchTST_backbone(c_in=self.c_in, context_window = self.seq_len, target_window=self.pred_len, patch_len=patch_len, stride=stride, 
+                                  max_seq_len=max_seq_len, n_layers=self.nlayers, d_model=self.d_model,
+                                  n_heads=self.n_head, d_k=d_k, d_v=d_v, d_ff=self.d_ff, norm=norm, attn_dropout=attn_dropout,
                                   dropout=dropout, act=act, key_padding_mask=key_padding_mask, padding_var=padding_var, 
                                   attn_mask=attn_mask, res_attention=res_attention, pre_norm=pre_norm, store_attn=store_attn,
-                                  pe=pe, learn_pe=learn_pe, fc_dropout=fc_dropout, head_dropout=head_dropout, padding_patch = padding_patch,
-                                  pretrain_head=pretrain_head, head_type=head_type, individual=individual, revin=revin, affine=affine,
-                                  subtract_last=subtract_last, verbose=verbose, **kwargs)
-            self.model_res = PatchTST_backbone(c_in=c_in, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
-                                  max_seq_len=max_seq_len, n_layers=n_layers, d_model=d_model,
-                                  n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, norm=norm, attn_dropout=attn_dropout,
+                                  pe=pe, learn_pe=learn_pe, fc_dropout=fc_dropout, head_dropout=self.head_dropout, padding_patch = self.padding_patch,
+                                  pretrain_head=pretrain_head, head_type=head_type, individual=self.individual, revin=self.revin, affine=self.affine,
+                                  subtract_last=self.subtract_last, verbose=verbose, **kwargs)
+            self.model_res = PatchTST_backbone(c_in=self.c_in, context_window = self.seq_len, target_window=self.pred_len, patch_len=patch_len, stride=stride, 
+                                  max_seq_len=max_seq_len, n_layers=self.nlayers, d_model=self.d_model,
+                                  n_heads=self.n_head, d_k=d_k, d_v=d_v, d_ff=self.d_ff, norm=norm, attn_dropout=attn_dropout,
                                   dropout=dropout, act=act, key_padding_mask=key_padding_mask, padding_var=padding_var, 
                                   attn_mask=attn_mask, res_attention=res_attention, pre_norm=pre_norm, store_attn=store_attn,
-                                  pe=pe, learn_pe=learn_pe, fc_dropout=fc_dropout, head_dropout=head_dropout, padding_patch = padding_patch,
-                                  pretrain_head=pretrain_head, head_type=head_type, individual=individual, revin=revin, affine=affine,
-                                  subtract_last=subtract_last, verbose=verbose, **kwargs)
+                                  pe=pe, learn_pe=learn_pe, fc_dropout=fc_dropout, head_dropout=self.head_dropout, padding_patch = self.padding_patch,
+                                  pretrain_head=pretrain_head, head_type=head_type, individual=self.individual, revin=self.revin, affine=self.affine,
+                                  subtract_last=self.subtract_last, verbose=verbose, **kwargs)
         else:
-            self.model = PatchTST_backbone(c_in=c_in, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
-                                  max_seq_len=max_seq_len, n_layers=n_layers, d_model=d_model,
-                                  n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, norm=norm, attn_dropout=attn_dropout,
+            self.model = PatchTST_backbone(c_in=self.c_in, context_window = self.seq_len, target_window=self.pred_len, patch_len=patch_len, stride=stride, 
+                                  max_seq_len=max_seq_len, n_layers=self.nlayers, d_model=self.d_model,
+                                  n_heads=self.n_head, d_k=d_k, d_v=d_v, d_ff=self.d_ff, norm=norm, attn_dropout=attn_dropout,
                                   dropout=dropout, act=act, key_padding_mask=key_padding_mask, padding_var=padding_var, 
                                   attn_mask=attn_mask, res_attention=res_attention, pre_norm=pre_norm, store_attn=store_attn,
-                                  pe=pe, learn_pe=learn_pe, fc_dropout=fc_dropout, head_dropout=head_dropout, padding_patch = padding_patch,
-                                  pretrain_head=pretrain_head, head_type=head_type, individual=individual, revin=revin, affine=affine,
-                                  subtract_last=subtract_last, verbose=verbose, **kwargs)
+                                  pe=pe, learn_pe=learn_pe, fc_dropout=fc_dropout, head_dropout=self.head_dropout, padding_patch = self.padding_patch,
+                                  pretrain_head=pretrain_head, head_type=head_type, individual=self.individual, revin=self.revin, affine=self.affine,
+                                  subtract_last=self.subtract_last, verbose=verbose, **kwargs)
+            self.model.double()
     
     
     def forward(self, x):           # x: [Batch, Input length, Channel]
@@ -90,3 +96,4 @@ class Model(nn.Module):
             x = self.model(x)
             x = x.permute(0,2,1)    # x: [Batch, Input length, Channel]
         return x
+    

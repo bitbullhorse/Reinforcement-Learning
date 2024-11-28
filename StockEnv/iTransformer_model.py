@@ -17,6 +17,7 @@ try:
     from Transformer import PositionalEncoding
 except:
     from .Transformer import PositionalEncoding
+
 class iTransformer(nn.Module):
     def __init__(self, seq_len, pred_len, d_model, n_head, nlayers, d_ff,use_norm=True):
         super(iTransformer, self).__init__()

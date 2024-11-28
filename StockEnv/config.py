@@ -1,5 +1,7 @@
 import json
 
+import torch
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 INDICATORS = [
     "macd",
     "boll_ub",

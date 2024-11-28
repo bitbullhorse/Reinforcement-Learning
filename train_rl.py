@@ -1,6 +1,8 @@
 import os
 import pandas as pd
 from stable_baselines3 import PPO
+from stable_baselines3.common.logger import configure
+import datetime
 
 import config
 from preprocessors import FeatureEngineer, data_split
@@ -9,9 +11,33 @@ from StockEnv.StockEnv import StockTradingEnv
 from StockEnv.config import INDICATORS as INDICATORS
 from GTrXL import GTrXLExtractor
 
-from DRLAgent import DRLAgent
+from lstm_policy import CustomActorCriticPolicy, LSTMExtractor, LSTMNetwork
 
-stock_nums = ['000001', '600031',]
+from DRLAgent import DRLAgent
+from util import backtest_stats
+
+# 2016-01-04 00:00:00
+# 2022-10-14 00:00:00
+# 2022-10-17 00:00:00
+# 2023-08-16 00:00:00
+# 2023-08-17 00:00:00
+# 2024-06-28 00:00:00
+
+# DDPG 2.11
+# SAC  2.07
+# TD3  1.43
+# PPO  1.36
+# DQN
+# A2C  1.87
+
+
+TRAIN_START_DATE = '2016-01-04'
+TRAIN_END_DATE = '2023-8-16'
+
+TRADE_START_DATE = '2023-08-17'
+TRADE_END_DATE = '2024-06-28'
+
+stock_nums = os.listdir('/home/czj/pycharm_project_tmp_pytorch/强化学习/StockEnv/股票数据/')
 index = ['日期_Date', '股票代码_Stkcd', '收盘价_Clpr', '开盘价_Oppr', '最高价_Hipr', '最低价_Lopr', '复权价1(元)_AdjClpr1',
          '复权价2(元)_AdjClpr2', '成交量_Trdvol',
          '成交金额_Trdsum', '日振幅(%)_Dampltd', '总股数日换手率(%)_DFulTurnR', '流通股日换手率(%)_DTrdTurnR',
@@ -51,16 +77,15 @@ df.rename(columns={
 # 找到每只股票的最晚开始日期和最早结束日期
 latest_start_date = df.groupby('tic')['date'].min().max()
 earliest_end_date = df.groupby('tic')['date'].max().min()
-
 # 过滤数据框以仅包含这些日期范围内的数据
 df = df[(df['date'] >= latest_start_date) & (df['date'] <= earliest_end_date)]
-
+dates = df['date'].unique()
+tmp_df = pd.DataFrame({'value':range(len(dates))},index=pd.DatetimeIndex(dates))
 # 确保每只股票包含相同日期的交易数据
 all_dates = pd.date_range(start=latest_start_date, end=earliest_end_date)
 df = df.pivot_table(index='date', columns='tic', values=df.columns.difference(['date', 'tic']))
-df = df.reindex(all_dates).fillna(method='ffill').fillna(method='bfill')
+df = df.reindex(tmp_df.index).fillna(method='ffill').fillna(method='bfill')
 df = df.stack(level='tic').reset_index()
-
 # 重命名列名
 df.rename(columns={'level_0': 'date'}, inplace=True)
 # 打印重命名后的数据框
@@ -72,7 +97,9 @@ fe = FeatureEngineer(
                     user_defined_feature = False)
 
 df = fe.preprocess_data(df)
-df = data_split(df, '2016-01-04', '2024-06-28')
+tmp = df.copy()
+df = data_split(tmp, TRAIN_START_DATE, TRAIN_END_DATE)
+trade_df = data_split(tmp, TRADE_START_DATE, TRADE_END_DATE)
 
 stock_dimension = len(stock_nums)
 
@@ -108,7 +135,22 @@ PPO_kwargs = {
     "batch_size": 64,
 }
 
-env = StockTradingEnv(df, **env_kwargs)
+SAC_PARAMS = {
+    "batch_size": 1,
+    "buffer_size": 10000,
+    "learning_rate": 0.0001,
+    "learning_starts": 10,
+    "ent_coef": "auto_0.1",
+}
+
+env = StockTradingEnv(df, use_frl_indicators=True,use_predictor=False,use_gtrxl=True,**env_kwargs)
+env_train, _ = env.get_sb_env()
+
+env1 = StockTradingEnv(df, use_frl_indicators=True,use_predictor=False,use_gtrxl=False,**env_kwargs)
+env1_train, _ = env1.get_sb_env()
+
+trade_env = StockTradingEnv(trade_df, use_frl_indicators=True,use_predictor=False,use_gtrxl=True,**env_kwargs)
+env_trade, _ = trade_env.get_sb_env()
 
 policy_kwargs = dict(
     features_extractor_class=GTrXLExtractor,
@@ -123,8 +165,59 @@ GTrXL_PPO = PPO(
     **PPO_kwargs,
 )
 
-agent = DRLAgent(env=env)
+lstm_policy_kwargs = dict(
+    features_extractor_class=LSTMExtractor,
+    features_extractor_kwargs=dict(features_dim=128),
+)
 
-model_ppo = agent.get_model("ppo",model_kwargs = config.PPO_PARAMS, policy_kwargs=policy_kwargs)
+LSTM_PPO = PPO(
+    CustomActorCriticPolicy,
+    env,
+    policy_kwargs=lstm_policy_kwargs,
+    verbose=1,
+    tensorboard_log="/home/czj/pycharm_project_tmp_pytorch/强化学习/StockEnv/tensorboard/",
+    **PPO_kwargs,
+    )
 
+agent = DRLAgent(env=env_train)
+agent1 = DRLAgent(env=env1_train)
 
+use_sac = 1
+use_ppo = 0
+
+if use_ppo:
+    # model_ppo = agent.get_model("ppo",model_kwargs = config.PPO_PARAMS, policy_kwargs=policy_kwargs)
+    model_ppo = agent.get_model("ppo", model_kwargs=PPO_kwargs, policy=CustomActorCriticPolicy,policy_kwargs=lstm_policy_kwargs)
+    # model_ppo = agent1.get_model("ppo", model_kwargs=PPO_kwargs,)
+    tmp_path = '/home/czj/pycharm_project_tmp_pytorch/强化学习/rltmp/' + 'GTrXL_PPO' + '/'
+    new_logger_gtrxl = configure(tmp_path, ["stdout", "csv", "tensorboard"])
+    model_ppo.set_logger(new_logger_gtrxl)
+    trained_ppo = agent.train_model(model=model_ppo, tb_log_name='GTrXL_PPO', total_timesteps=50000)
+    trained_moedel = trained_ppo
+    df_account_value, df_actions = DRLAgent.DRL_prediction(
+        model=trained_moedel, 
+        environment = trade_env)
+    print(df_account_value)
+    now = datetime.datetime.now().strftime('%Y%m%d-%Hh%M')
+    perf_stats_all = backtest_stats(df_account_value, value_col_name='account_value')
+    perf_stats_all = pd.DataFrame(perf_stats_all)
+    perf_stats_all.to_excel('/home/czj/pycharm_project_tmp_pytorch/强化学习/rltmp/' + 'GTrXL_PPO' + '/'+now+'perf_stats_all.xlsx')
+
+if use_sac:
+    # model_sac = agent.get_model("sac",model_kwargs = SAC_PARAMS, policy_kwargs=policy_kwargs)
+    # model_sac = agent.get_model("sac", model_kwargs=SAC_PARAMS, policy=CustomActorCriticPolicy,policy_kwargs=lstm_policy_kwargs)
+    model_sac = agent1.get_model("sac", model_kwargs=SAC_PARAMS,)
+    print(model_sac.policy)
+    exit(0)
+    tmp_path = '/home/czj/pycharm_project_tmp_pytorch/强化学习/rltmp/' + 'GTrXL_SAC' + '/'
+    new_logger_gtrxl = configure(tmp_path, ["stdout", "csv", "tensorboard"])
+    model_sac.set_logger(new_logger_gtrxl)
+    trained_sac = agent.train_model(model=model_sac, tb_log_name='GTrXL_SAC', total_timesteps=500000)
+    trained_moedl = trained_sac
+    df_account_value, df_actions = DRLAgent.DRL_prediction(
+        model=trained_moedl,
+        environment = trade_env)
+    perf_stats_all = backtest_stats(df_account_value, value_col_name='account_value')
+    now = datetime.datetime.now().strftime('%Y%m%d-%Hh%M')
+    perf_stats_all = pd.DataFrame(perf_stats_all)
+    perf_stats_all.to_excel('/home/czj/pycharm_project_tmp_pytorch/强化学习/rltmp/' + 'GTrXL_SAC' + '/' + now + 'perf_stats_all.xlsx')
