@@ -145,6 +145,8 @@ SAC_PARAMS = {
 
 env = StockTradingEnv(df, use_frl_indicators=True,use_predictor=False,use_gtrxl=True,**env_kwargs)
 env_train, _ = env.get_sb_env()
+print(type(env_train))
+exit()
 
 env1 = StockTradingEnv(df, use_frl_indicators=True,use_predictor=False,use_gtrxl=False,**env_kwargs)
 env1_train, _ = env1.get_sb_env()
@@ -179,16 +181,19 @@ LSTM_PPO = PPO(
     **PPO_kwargs,
     )
 
+print(LSTM_PPO.policy)
+exit()
+
 agent = DRLAgent(env=env_train)
 agent1 = DRLAgent(env=env1_train)
 
-use_sac = 1
-use_ppo = 0
+use_sac = 0
+use_ppo = 1
 
 if use_ppo:
     # model_ppo = agent.get_model("ppo",model_kwargs = config.PPO_PARAMS, policy_kwargs=policy_kwargs)
-    model_ppo = agent.get_model("ppo", model_kwargs=PPO_kwargs, policy=CustomActorCriticPolicy,policy_kwargs=lstm_policy_kwargs)
-    # model_ppo = agent1.get_model("ppo", model_kwargs=PPO_kwargs,)
+    # model_ppo = agent.get_model("ppo", model_kwargs=PPO_kwargs, policy=CustomActorCriticPolicy,policy_kwargs=lstm_policy_kwargs)
+    model_ppo = agent1.get_model("ppo", model_kwargs=PPO_kwargs,)
     tmp_path = '/home/czj/pycharm_project_tmp_pytorch/强化学习/rltmp/' + 'GTrXL_PPO' + '/'
     new_logger_gtrxl = configure(tmp_path, ["stdout", "csv", "tensorboard"])
     model_ppo.set_logger(new_logger_gtrxl)
@@ -207,8 +212,6 @@ if use_sac:
     # model_sac = agent.get_model("sac",model_kwargs = SAC_PARAMS, policy_kwargs=policy_kwargs)
     # model_sac = agent.get_model("sac", model_kwargs=SAC_PARAMS, policy=CustomActorCriticPolicy,policy_kwargs=lstm_policy_kwargs)
     model_sac = agent1.get_model("sac", model_kwargs=SAC_PARAMS,)
-    print(model_sac.policy)
-    exit(0)
     tmp_path = '/home/czj/pycharm_project_tmp_pytorch/强化学习/rltmp/' + 'GTrXL_SAC' + '/'
     new_logger_gtrxl = configure(tmp_path, ["stdout", "csv", "tensorboard"])
     model_sac.set_logger(new_logger_gtrxl)

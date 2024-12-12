@@ -69,7 +69,7 @@ def train_mo_itransformer(epochs, model: nn.Module, CustomiTransformerDataset, p
             train_losses = []
             # 在每个 epoch 开始时，获取并打乱股票数据列表
             stock_list = list(price_dict.items())
-            random.shuffle(stock_list)
+            # random.shuffle(stock_list)
             for stock_name, price in tqdm(stock_list, desc=f'Epoch {epoch+1}/{epochs} - Training'):
                 train_price, _, _ = price_split(price)
                 train_data = CustomiTransformerDataset(train_price, seqlen, predlen)
@@ -170,7 +170,7 @@ def iTransformer_test(model: nn.Module, CustomiTransformerDataset, price_dict, s
             if predlen == 1:
                 plot_result(name, stock_name, label, pred)
             itransformer = iTransformer(d_model=128, n_head=8, nlayers=6, seq_len=seqlen, d_ff=512, pred_len=predlen)
-            itransformer.load_state_dict(torch.load(f'/home/czj/pycharm_project_tmp_pytorch/强化学习/StockEnv/saved_model/{stock_name}/cp/iTransformer_{pred_len}.pth'))
+            itransformer.load_state_dict(torch.load(f'/home/czj/pycharm_project_tmp_pytorch/强化学习/StockEnv/saved_model/{stock_name}/cp/iTransformer_{predlen}.pth'))
             itransformer.to(device)
             itransformer.eval()
             test_loss = 0
@@ -377,21 +377,9 @@ train_dict = {}
 eval_dict = {}
 test_dict = {}
 
-for stock_name in stock_names:
-    file_path = data_path + stock_name + '/'
-    file_names = os.listdir(file_path)
-    price = pd.DataFrame()
-    for file_name in file_names:
-        xls_path = file_path + file_name
-        sheet_name = pd.ExcelFile(xls_path).sheet_names[0]
-        new_price = pd.read_excel(xls_path, sheet_name=sheet_name, header=0)
-        price = pd.concat([price, new_price])
-    print(f'Loaded {stock_name} data.')
-    price_dict[stock_name] = price
-    train_price, eval_price, test_price = price_split(price)
-    train_dict[stock_name] = train_price
-    eval_dict[stock_name] = eval_price
-    test_dict[stock_name] = test_price
+stock10 = ['600030', '600519', '601688', '601901', '601288', '600010', '600050', '603288', '601919', '000001',]
+stock20 = ['600030', '600519', '601688', '601901', '601288', '600010', '600050', '603288', '601919', '000001',
+            '601601', '600585', '600016', '601398', '601318', '600104', '600000', '600028', '600372', '600809',]
 
 
 def train_multi_DLinear():
@@ -402,27 +390,25 @@ def train_multi_DLinear():
     pred_lens = [1, 5, 10]
     for pred_len in pred_lens:
         model = iTransformer_multi_Dlinear(d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=4096, pred_len=pred_len, individual=0, keys=stock_names)
-        train_mo_itransformer(EPOCHS, model, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name='iTransformer_multi_Dlinear', loss_func=criterion_MSELoss)
-    exit(0)
+        train_mo_itransformer(EPOCHS, model, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name=f'iTransformer_multi_{seqlen}_Dlinear', loss_func=criterion_MSELoss)
+    return
 
 # train_multi_DLinear()
 
-if __name__ == '__main__':
+def train():
     dmodel = 256
-    seqlen=36
+    seqlen=12
     batch_size = 16
     EPOCHS = 200
-    start_len = 5
-    end_len = 11
     pred_lens = [1, 5, 10]
 
     for pred_len in pred_lens:
         model = multi_iTransformer(d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=4096, keys=stock_names,pred_len=pred_len)
-        train_mo_itransformer(EPOCHS, model, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name='iTransformer_multi_36_out', loss_func=criterion_MSELoss)
+        train_mo_itransformer(EPOCHS, model, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name=f'fixed_iTransformer_{len(stock_names)}_{seqlen}_out', loss_func=criterion_MSELoss)
     # for pred_len in pred_lens:
     #     model = multi_iTransformer_multi_Dec(len(index) - 1,d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=4096, keys=stock_names,pred_len=pred_len)
     #     train_mo_itransformer(EPOCHS, model, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name='iTransformer_multi_dec', loss_func=criterion_MSELoss)
-    exit(0)
+    return
     # for pred_len in pred_lens:
     #     model = multi_iTransformer_multi_Dec(len(index) - 1,d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=4096, keys=stock_names,pred_len=pred_len)
     #     train_multi_itransformer(EPOCHS, model, CustomMultiCpDataset, train_dict, eval_dict, test_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name='iTransformer_multi_dec_1', loss_func=criterion_MSELoss)
@@ -473,3 +459,23 @@ if __name__ == '__main__':
         
         print(f'模型_out 在 {better_out} 只股票上表现更优')
         print(f'模型_dec 在 {better_dec} 只股票上表现更优')
+
+if __name__ == '__main__':
+    # stock_names = stock20
+    for stock_name in stock_names:
+        file_path = data_path + stock_name + '/'
+        file_names = os.listdir(file_path)
+        price = pd.DataFrame()
+        for file_name in file_names:
+            xls_path = file_path + file_name
+            sheet_name = pd.ExcelFile(xls_path).sheet_names[0]
+            new_price = pd.read_excel(xls_path, sheet_name=sheet_name, header=0)
+            price = pd.concat([price, new_price])
+        print(f'Loaded {stock_name} data.')
+        price_dict[stock_name] = price
+        train_price, eval_price, test_price = price_split(price)
+        train_dict[stock_name] = train_price
+        eval_dict[stock_name] = eval_price
+        test_dict[stock_name] = test_price
+    train()
+    exit(0)
