@@ -400,11 +400,11 @@ def train():
     seqlen=12
     batch_size = 16
     EPOCHS = 200
-    pred_lens = [1, 5, 10]
+    pred_lens = [1]
 
     for pred_len in pred_lens:
-        model = multi_iTransformer(d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=4096, keys=stock_names,pred_len=pred_len)
-        train_mo_itransformer(EPOCHS, model, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name=f'fixed_iTransformer_{len(stock_names)}_{seqlen}_out', loss_func=criterion_MSELoss)
+        model = multi_iTransformer(d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=512, keys=stock_names,pred_len=pred_len)
+        train_mo_itransformer(EPOCHS, model, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name=f'dff512_iTransformer_{len(stock_names)}_{seqlen}_out', loss_func=criterion_MSELoss)
     # for pred_len in pred_lens:
     #     model = multi_iTransformer_multi_Dec(len(index) - 1,d_model=dmodel, n_head=8, nlayers=6, seq_len=seqlen, d_ff=4096, keys=stock_names,pred_len=pred_len)
     #     train_mo_itransformer(EPOCHS, model, CustomiTransformerDatasetCp, price_dict, seqlen=seqlen, predlen=pred_len, batch_size=batch_size, name='iTransformer_multi_dec', loss_func=criterion_MSELoss)
@@ -478,4 +478,3 @@ if __name__ == '__main__':
         eval_dict[stock_name] = eval_price
         test_dict[stock_name] = test_price
     train()
-    exit(0)

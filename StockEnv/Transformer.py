@@ -58,12 +58,13 @@ def init_weights(m):
         init.constant_(m.weight, 1.0)
 
 class TransformerCp(nn.Module):
-    def __init__(self, d_model, nhead, batch_first=True, dtype=torch.float64, seq_len=12, nlayers=6, d_ff=512):
+    def __init__(self, d_model, nhead, pred_len,batch_first=True, dtype=torch.float64, seq_len=12, nlayers=6, d_ff=512):
         super(TransformerCp, self).__init__()
         self.d_model = d_model
         self.nhead = nhead
         self.nlayers = nlayers
         self.seq_len = seq_len
+        self.pred_len = pred_len
         self.d_ff = d_ff
         self.position_encoder = PositionalEncoding(d_model, dropout=0.1, max_len=seq_len)
         self.transformer = nn.Transformer(d_model=d_model, nhead=nhead, batch_first=batch_first, dtype=dtype,
@@ -82,7 +83,7 @@ class TransformerCp(nn.Module):
             tgt_mask = None
         src = self.position_encoder(src)
         tgt = self.position_encoder(tgt)
-        output = self.transformer(src=src, tgt=tgt, tgt_mask=tgt_mask)[:,-1,:]
+        output = self.transformer(src=src, tgt=tgt, tgt_mask=tgt_mask)[:,-self.pred_len:,:]
         output = self.linear(output)
         output = self.layer_norm(output)
         output = self.relu(output)
@@ -198,20 +199,22 @@ class TrXL(nn.Module):
 
 
 class PureLSTMRegression(nn.Module):
-    def __init__(self, input_size, hidden_size, batch_first=True, dtype=torch.float64, num_layers=8, dropout=0):
+    def __init__(self, input_size, hidden_size, pred_len,batch_first=True, dtype=torch.float64, num_layers=8, dropout=0):
         super(PureLSTMRegression, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.input_size = input_size
+        self.pred_len = pred_len
+        self.seq_len = 12
 
         self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size, batch_first=batch_first, num_layers=num_layers,dtype=dtype, dropout=dropout)
-        self.Linear = nn.Linear(input_size, input_size, bias=False, dtype=dtype)
+        self.Linear = nn.Linear(hidden_size, input_size, bias=False, dtype=dtype)
 
     def forward(self, x):
         h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size, dtype=x.dtype, device=x.device)
         c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size, dtype=x.dtype, device=x.device)
         h0, c0 = h0.to(device), c0.to(device)
         x, hidden = self.lstm(x, (h0, c0))
-        x = x[:, -1, :]
+        x = x[:, -self.pred_len:, :]
         x = self.Linear(x)
         return x

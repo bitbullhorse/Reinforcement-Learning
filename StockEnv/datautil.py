@@ -25,12 +25,18 @@ class CustomDatasetCp(Dataset):
         self.close_df = tmp_df['收盘价_Clpr']
 
     def __getitem__(self, index):
-        src_df = self.seq_df.iloc[index: index + self.seq_size]
-        tgt_df = self.seq_df.iloc[index + self.seq_size + self.pred_len - 1]
-        Cl_pr = self.close_df.iloc[index + self.seq_size + self.pred_len - 1]
-        return torch.tensor(src_df.values, dtype=torch.float64, device=device), torch.unsqueeze(torch.tensor(tgt_df.values,
-                                                                                             dtype=torch.float64,
-                                                                                             device=device), 0), torch.unsqueeze(torch.tensor(Cl_pr, dtype=torch.float64, device=device), dim=0)
+        # src_df = self.seq_df.iloc[index: index + self.seq_size]
+        # tgt_df = self.seq_df.iloc[index + self.seq_size + self.pred_len - 1]
+        # Cl_pr = self.close_df.iloc[index + self.seq_size + self.pred_len - 1]
+        # return torch.tensor(src_df.values, dtype=torch.float64, device=device), torch.unsqueeze(torch.tensor(tgt_df.values,
+        #                                                                                      dtype=torch.float64,
+        #                                                                                      device=device), 0), torch.unsqueeze(torch.tensor(Cl_pr, dtype=torch.float64, device=device), dim=0)
+        seq = self.seq_df[index: index + self.seq_size]
+        label = self.seq_df[index + self.seq_size: index + self.seq_size + self.pred_len]
+        return torch.tensor(seq.values, dtype=torch.float64, device=device), torch.tensor(label.values, dtype=torch.float64, device=device), torch.tensor(label.values, dtype=torch.float64, device=device),
+
+
+
     def __len__(self):
         return int(min(len(self.seq_df) - self.seq_size - self.pred_len, len(self.close_df) - self.seq_size - self.pred_len)) + 1
 

@@ -19,6 +19,22 @@ criterion_PoissonNLLLoss = nn.PoissonNLLLoss()
 criterion_L1Loss = nn.L1Loss()
 criterion_MSELoss = nn.MSELoss()
 
+# # 绘图并保存
+# plt.figure(figsize=(10, 6))
+# # plt.plot(pred_dlinear, label='DLinear')
+# plt.plot(pred_multi_out, label='Multi Out')
+# # plt.plot(pred_patchTST_12, label='PatchTST 12')
+# # plt.plot(pred_transformer, label='Transformer')
+# # plt.plot(pred_lstm, label='LSTM')
+# # plt.plot(pred_itr, label='iTransformer')
+# plt.plot(ground_truth, label='Ground Truth', linestyle='--')
+# plt.legend()
+# plt.title(f'Stock Prediction for {stock_name}')
+# plt.xlabel('Time')
+# plt.ylabel('Price')
+# plt.savefig(f'/home/czj/pycharm_project_tmp_pytorch/强化学习/StockEnv/fig/{pred_len}/{stock_name}.png')
+# plt.close()
+
 def normalize_list(data):
     min_val = min(data)
     max_val = max(data)
@@ -65,7 +81,7 @@ def train_transformer(model, epochs, train_loader:Dataloader, Loss, optimizer, s
                 optimizer.zero_grad()
                 count+=1
                 output = model(src, src, has_mask=False)
-                loss = Loss(output, cp)
+                loss = Loss(output[:,:,0], cp[:,:,0])
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
@@ -74,7 +90,7 @@ def train_transformer(model, epochs, train_loader:Dataloader, Loss, optimizer, s
             loss_sum = 0
             for src, tgt, cp in eval_loader:
                 output = model(src, src, has_mask=False)
-                loss = Loss(output, cp)
+                loss = Loss(output[:,:,0], cp[:,:,0])
                 loss_sum+=loss.item()
             if loss_sum < minloss:
                 minloss = loss_sum
